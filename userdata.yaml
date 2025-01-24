@@ -1,0 +1,118 @@
+#cloud-config
+users:
+  - name: test
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    shell: /bin/bash
+ 
+chpasswd:
+  list: |
+    test:test
+  expire: false
+#cloud-config
+users:
+  - name: test
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    shell: /bin/bash
+
+chpasswd:
+  list: |
+    test:test
+  expire: false
+
+runcmd:
+  - |
+    #!/bin/bash
+    set -e
+
+    # Set disk_count or detect number of disks
+    disk_count=$(ls /dev/sd* | grep -E 'sd[b-z]' | wc -l)
+
+    # Loop through all additional disks and configure them
+    for i in $(seq 1 $disk_count); do
+      DISK="/dev/sd$(echo $((97 + i)) | awk '{printf("%c", $1)}')" # Generate /dev/sdb, /dev/sdc, etc.
+      MOUNT_POINT="/mnt/disk${i}"
+
+      if [ -b "$DISK" ]; then
+        echo "Configuring disk $DISK..."
+
+        # Create GPT partition table if it doesn't exist
+        if ! parted "$DISK" print | grep -q "Partition Table: gpt"; then
+          parted -s "$DISK" mklabel gpt
+        fi
+
+        # Create a primary partition if it doesn't exist
+        if ! lsblk -f | grep -q "${DISK}1"; then
+          parted -s "$DISK" mkpart primary ext4 0% 100%
+        fi
+
+        # Format the partition if not already formatted
+        if ! blkid "${DISK}1" | grep -q ext4; then
+          mkfs.ext4 "${DISK}1"
+        fi
+
+        # Create the mount point and mount the disk
+        mkdir -p "$MOUNT_POINT"
+        mount "${DISK}1" "$MOUNT_POINT"
+
+        # Add to /etc/fstab for persistence
+        if ! grep -q "${DISK}1" /etc/fstab; then
+          echo "${DISK}1 $MOUNT_POINT ext4 defaults 0 2" >> /etc/fstab
+        fi
+
+        echo "Disk $DISK successfully configured and mounted at $MOUNT_POINT."
+      else
+        echo "Disk $DISK not found. Skipping."
+      fi
+    done
+
+    # Verify the disk setup
+    lsblk
+    df -h
+
+
+# runcmd:
+#   - |
+#     #!/bin/bash
+#     set -e
+
+#     # Loop through all additional disks and configure them
+#     for i in {1..${disk_count}}; do
+#       DISK="/dev/sd$(echo $((97 + i)) | awk '{printf("%c", $1)}')" # Generate /dev/sdb, /dev/sdc, etc.
+#       MOUNT_POINT="/mnt/disk${i}"
+
+#       if [ -b "$DISK" ]; then
+#         echo "Configuring disk $DISK..."
+
+#         # Create GPT partition if it doesn't exist
+#         if ! parted "$DISK" print | grep -q "Partition Table"; then
+#           parted -s "$DISK" mklabel gpt
+#         fi
+
+#         # Create a primary partition if it doesn't exist
+#         if ! lsblk -f | grep -q "${DISK}1"; then
+#           parted -s "$DISK" mkpart primary ext4 0% 100%
+#         fi
+
+#         # Format the partition if not already formatted
+#         if ! blkid "${DISK}1" | grep -q ext4; then
+#           mkfs.ext4 "${DISK}1"
+#         fi
+
+#         # Create the mount point and mount the disk
+#         mkdir -p "$MOUNT_POINT"
+#         mount "${DISK}1" "$MOUNT_POINT"
+
+#         # Add to /etc/fstab for persistence
+#         if ! grep -q "${DISK}1" /etc/fstab; then
+#           echo "${DISK}1 $MOUNT_POINT ext4 defaults 0 2" >> /etc/fstab
+#         fi
+
+#         echo "Disk $DISK successfully configured and mounted at $MOUNT_POINT."
+#       else
+#         echo "Disk $DISK not found. Skipping."
+#       fi
+#     done
+
+#     # Verify the disk setup
+#     lsblk
+#     df -h
